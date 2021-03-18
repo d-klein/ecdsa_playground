@@ -21,12 +21,8 @@ class ProECC:
         basePoint= Point(0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296,
                               0x4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5)
         self.proBasePoint = ProPoint(basePoint.x, basePoint.y, 1)  #None #0 #self.aff2pro(self.basePoint) todo: better initialization/sanity check here
-        self.currentTrace = []
-        self.time_unit = 10
-        self.signalRatio = 0.1
         self.generateLeakage = False
-        self.doubleAmplitude = 10
-        self.addAmplitude = 20
+        self.collector = None
 
     def aff2pro(self, affPoint, z):
         assert(z != 0)
@@ -43,24 +39,6 @@ class ProECC:
         else:
             div = self.inv_mod(proPoint.z, self.p)
             return Point((proPoint.x * div) % self.p, (proPoint.y * div) % self.p)
-
-    def int_to_bytelist_int(self,x):
-        if x == 0:
-            return [0]
-        else:
-            l = (x.bit_length() + 7) // 8 # min length of bytes required
-            b = x.to_bytes(l, byteorder='little')
-            return [ int(i) for i in b ]
-
-    def resetTrace(self):
-        self.currentTrace = []
-
-    def addSignal(self, value, amplitude=20):
-        sig = self.int_to_bytelist_int(value)
-        for i in sig:
-            ran_i = randint(0, amplitude)
-            sig_i = (amplitude * self.signalRatio) * (i / 255.)
-            self.currentTrace.append(ran_i + sig_i)
 
     def setCurveParameters(self, a, b, p, n, basePoint):
         """
@@ -101,37 +79,6 @@ class ProECC:
             else:
                 return False
 
-    #def inv_mod_p(self,x):
-    #    """
-    #    computes x^{-1} mod p
-    #    :param x:
-    #    :return: x^{-1} mod p. raises ZeroDivisionError if inversion is impossible
-    #    """
-    #    if x % self.p == 0:
-    #        raise ZeroDivisionError("Impossible inverse")
-    #    return pow(x, self.p - 2, self.p)
-
-    #def inv_mod_n(self,x):
-    #    """
-    #    computes x^{-1} mod n
-    #    :param x:
-    #    :return: x^{-1} mod n. raises ZeroDivisionError if inversion is impossible
-    #    """
-    #    if x % self.n == 0:
-    #        raise ZeroDivisionError("Impossible inverse")
-    #    return pow(x, self.n - 2, self.n)
-
-
-    #def inv_mod(self,x,n):
-    #    """
-    #    computes x^{-1} mod n
-    #    :param x:
-    #    :return: x^{-1} mod n. raises ZeroDivisionError if inversion is impossible
-    #    """
-    #    if x % n == 0:
-    #        raise ZeroDivisionError("Impossible inverse")
-    #    return pow(x, n - 2, n)
-
     def inv_mod(self, value, modulus):
         if value == 0:
             raise ValueError("Division by zero")
@@ -151,7 +98,7 @@ class ProECC:
 
     def isEqual(self, P, Q):
         """
-        checks if two points are equal
+        checks if two projective points are equal
         :param P: point 1
         :param Q: point 2
         :return: true, if x,y coordinates match
@@ -167,7 +114,7 @@ class ProECC:
 
     def inv(self,P):
         """
-        Inverse of the point P on the elliptic curve y^2 = x^3 + ax + b.
+        Inverse of the (projective) point P on the elliptic curve y^2 = x^3 + ax + b.
         :return: inverse point
         """
         if P == O_POINT_INF:
@@ -186,12 +133,18 @@ class ProECC:
         elif Q == self.inv(P):
             result = O_POINT_INF
         else:
+            if (self.generateLeakage):
+                self.collector.addSignal(P.x, self.collector.addAmplitude)
+                self.collector.addSignal(P.y, self.collector.addAmplitude)
+                self.collector.addSignal(Q.x, self.collector.addAmplitude)
+                self.collector.addSignal(Q.y, self.collector.addAmplitude)
             t0 = (P.y * Q.z) % self.p
             t1 = (Q.y * P.z) % self.p
             u0 = (P.x * Q.z) % self.p
             u1 = (Q.x * P.z) % self.p
             if u0 == u1:
                 if t0 == t1:
+                    print("doubling")
                     result = self.double(P)
                 else:
                     result = O_POINT_INF
@@ -223,6 +176,9 @@ class ProECC:
         if P.y == 0:
             return O_POINT_INF
         else:
+            if (self.generateLeakage):
+                self.collector.addSignal(P.x, self.collector.doubleAmplitude)
+                self.collector.addSignal(P.y, self.collector.doubleAmplitude)
             t = ((P.x * P.x * 3) % self.p) + ((self.a * P.z * P.z) % self.p)
             u = (P.y * P.z * 2) % self.p
             v = (u * P.x * P.y * 2) % self.p
@@ -234,19 +190,160 @@ class ProECC:
         assert self.onCurve(result)
         return result
 
+    def comb2(self,k):
+        bins = [int(i) for i in bin(k)[2:]]
+        if len(bins) % 2 != 0:
+            bins.insert(0,0)
+        # hardcoded: now increase up to 258 bit length
+        l = len(bins)
+        #while(l < 256):
+        #    bins.insert(0,0)
+        #    l = len(bins)
+        #print("len: " + str(len(bins)))
+        half = l//2
+        firstHalf = bins[0:half]
+        secondHalf = bins[half:]
+        comb2 = list(zip(firstHalf, secondHalf))
+        comb2 = [2 * i + j for (i, j) in comb2]
+        return comb2
 
-    def scalarMult(self, k, P):
+    def comb2_258(self,k):
+        bins = [int(i) for i in bin(k)[2:]]
+        if len(bins) % 2 != 0:
+            bins.insert(0,0)
+        # hardcoded: now increase up to 258 bit length
+        l = len(bins)
+        while(l < 258):
+            bins.insert(0,0)
+            l = len(bins)
+        #print("len: " + str(len(bins)))
+        half = l//2
+        firstHalf = bins[0:half]
+        secondHalf = bins[half:]
+        comb2 = list(zip(firstHalf, secondHalf))
+        comb2 = [2 * i + j for (i, j) in comb2]
+        return comb2
+
+    def scalarMultComb2Unmasked(self, k, P):
         """
-        scalar multiplication k*P on current curve; naive/non-secure
+        scalar multiplication k*P on current curve
+        computation similar to description of "A side journey into open titan", section 2.3.1
+        (signature verification algorithm)
 
         :param k: scalar
         :param P: EC point P
         :return: k*P
         """
-        k_bin = bin(k)[2:]
-        Q = 'PointInfty'
-        for i in (range(0, len(k_bin))):
-            Q = self.double(Q)
-            if (k_bin[i] == '1'):
-                Q = self.add(Q, P)
-        return Q
+
+        k_comb = self.comb2(k)
+        lk_2 = len(k_comb)
+
+        P2 = P
+        for i in range(0, lk_2):
+            P2 = self.double(P2)
+
+        P3 = self.add(P, P2)
+
+        PP = [ None, P, P2, P3]
+
+        S = O_POINT_INF
+        first_non_null = 0
+        for l in range(0, lk_2):
+            if(k_comb[l] != 0):
+                first_non_null = l
+                break
+        for i in range(first_non_null, lk_2):
+            S = self.double(S)
+            if(k_comb[i] > 0):
+                S = self.add(S, PP[k_comb[i]])
+        return S
+
+    def scalarMultComb2Masked(self, k, P, G0_idx):
+        """
+        scalar multiplication k*P on current curve
+        computation similar to description of "A side journey into open titan", section 2.3.3
+        (signature _creation_ algorithm)
+
+        :param k: scalar
+        :param P: EC point P
+        :param G0_idx: index indicating whether G1 (idx0) ... G4 (idx3) should be taken as random point G0
+        :return: k*P
+        """
+
+        k_comb = self.comb2_258(k)
+
+        G1 = P
+        G4 = G1
+        for i in range(0, 128):
+            G4 = self.double(G4)
+        G2 = self.double(G4)
+        G3 = self.add(G1,G2)
+
+        PP = [ G1, G2, G3, G4]
+        G0 = PP[G0_idx]
+        PP.insert(0, G0)
+
+        S = G1
+        Dummy = None
+        for i in range(1,129):
+            S = self.double(S)
+            if(k_comb[i] > 0):
+                S = self.add(S, PP[k_comb[i]])
+            else:
+                Dummy = self.add(S, PP[0])
+        if(k_comb[0] == 0):
+            S = self.add(S, self.inv(PP[4]))
+        else:
+            Dummy = self.add(S, self.inv(PP[4]))
+
+        return S
+
+"""
+        # G1 is the basepoint
+        G1 = self.proBasePoint
+        # G4 = [2^128]*G1 (use doubling for that)
+        G4 = G1
+        for i in range(0,lk_2):
+            G4 = self.double(G4)
+        # G2 is [2^129]G1 = 2*G4
+        G2 = self.double(G4)
+        G3 = self.add(G1,G2)
+        precomputedPoints = [G1, G2, G3, G4]
+        # for G0 we take randomly one of the precomputed points
+        G0 = precomputedPoints[G0_idx]
+
+        precomputedPoints.insert(0, G0)
+"""
+
+"""
+        S = G1
+        Dummy = None
+
+        print("precomputed points")
+        for i in range(0,5):
+            print(i)
+            print(precomputedPoints[i])
+
+        for i in range(0, len(k_comb)):
+            S = self.double(S)
+            ki = k_comb[i]
+            #print(ki)
+            if(ki > 0):
+                S = self.add(S, precomputedPoints[ki])
+        return S
+"""
+
+"""
+        for i in range(1, 129):
+            S = self.double(S)
+            ki = k_comb[i]
+            if(ki > 0):
+                S = self.add(S, precomputedPoints[ki])
+            else:
+                Dummy = self.add(S, precomputedPoints[0])
+        if(precomputedPoints[0] == 0):
+            S = self.add(S, self.inv(precomputedPoints[4]))
+        else:
+            Dummy = self.add(S, self.inv(precomputedPoints[4]))
+        return S
+"""

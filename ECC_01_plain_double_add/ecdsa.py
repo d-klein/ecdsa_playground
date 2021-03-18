@@ -1,4 +1,4 @@
-from curve_affine import ECC, Point, O_POINT_INF
+from .curve_affine import ECC, Point, O_POINT_INF
 
 def ecdsa(k, m, d, ecc_curve_affine):
     """

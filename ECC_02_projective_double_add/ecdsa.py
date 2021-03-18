@@ -1,4 +1,4 @@
-from curve_projective import Point
+from .curve_projective import Point
 
 ## ecdsa with base point blinding by using projective coordinates
 ##

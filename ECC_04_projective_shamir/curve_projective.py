@@ -21,12 +21,8 @@ class ProECC:
         basePoint= Point(0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296,
                               0x4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5)
         self.proBasePoint = ProPoint(basePoint.x, basePoint.y, 1)  #None #0 #self.aff2pro(self.basePoint) todo: better initialization/sanity check here
-        self.currentTrace = []
-        self.time_unit = 10
-        self.signalRatio = 0.1
         self.generateLeakage = False
-        self.doubleAmplitude = 10
-        self.addAmplitude = 20
+        self.collector = None
 
     def aff2pro(self, affPoint, z):
         assert(z != 0)
@@ -43,24 +39,6 @@ class ProECC:
         else:
             div = self.inv_mod(proPoint.z, self.p)
             return Point((proPoint.x * div) % self.p, (proPoint.y * div) % self.p)
-
-    def int_to_bytelist_int(self,x):
-        if x == 0:
-            return [0]
-        else:
-            l = (x.bit_length() + 7) // 8 # min length of bytes required
-            b = x.to_bytes(l, byteorder='little')
-            return [ int(i) for i in b ]
-
-    def resetTrace(self):
-        self.currentTrace = []
-
-    def addSignal(self, value, amplitude=20):
-        sig = self.int_to_bytelist_int(value)
-        for i in sig:
-            ran_i = randint(0, amplitude)
-            sig_i = (amplitude * self.signalRatio) * (i / 255.)
-            self.currentTrace.append(ran_i + sig_i)
 
     def setCurveParameters(self, a, b, p, n, basePoint):
         """
@@ -155,6 +133,11 @@ class ProECC:
         elif Q == self.inv(P):
             result = O_POINT_INF
         else:
+            if (self.generateLeakage):
+                self.collector.addSignal(P.x, self.collector.addAmplitude)
+                self.collector.addSignal(P.y, self.collector.addAmplitude)
+                self.collector.addSignal(Q.x, self.collector.addAmplitude)
+                self.collector.addSignal(Q.y, self.collector.addAmplitude)
             t0 = (P.y * Q.z) % self.p
             t1 = (Q.y * P.z) % self.p
             u0 = (P.x * Q.z) % self.p
@@ -193,6 +176,9 @@ class ProECC:
         if P.y == 0:
             return O_POINT_INF
         else:
+            if (self.generateLeakage):
+                self.collector.addSignal(P.x, self.collector.doubleAmplitude)
+                self.collector.addSignal(P.y, self.collector.doubleAmplitude)
             t = ((P.x * P.x * 3) % self.p) + ((self.a * P.z * P.z) % self.p)
             u = (P.y * P.z * 2) % self.p
             v = (u * P.x * P.y * 2) % self.p
