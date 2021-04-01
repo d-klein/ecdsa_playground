@@ -1,5 +1,5 @@
-from curve_projective import Point, ProECC, O_POINT_INF
-from ecdsa import ecdsa
+from .curve_projective import Point, ProECC, O_POINT_INF
+from .ecdsa import ecdsa
 import hashlib
 import binascii
 

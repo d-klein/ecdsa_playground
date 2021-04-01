@@ -123,3 +123,25 @@ trace = collector.currentTrace
 plt.figure()
 plt.plot(trace, linewidth=0.8)
 plt.show()
+
+
+
+
+
+## Example 5: collect trace for montgomery mult
+from ECC_05_montgomery import ecdsa, curve_affine
+# generate curve with NIST P256 curve params
+curve = curve_affine.ECC()
+curve.generateLeakage = True
+
+collector.currentTrace = []
+curve.collector = collector
+
+# perform signature
+rs = ecdsa.ecdsa(k, l, d, curve)
+
+# plot result
+trace = collector.currentTrace
+plt.figure()
+plt.plot(trace, linewidth=0.8)
+plt.show()

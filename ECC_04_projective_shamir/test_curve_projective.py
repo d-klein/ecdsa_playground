@@ -1,5 +1,5 @@
-from curve_projective import Point, ProPoint, ProECC, O_POINT_INF
-from naf import make_naf, make_non_zero, extend_non_zero, extend_naf, undo_naf, extend_naf_to_even
+from .curve_projective import Point, ProPoint, ProECC, O_POINT_INF
+from .naf import make_naf, make_non_zero, extend_non_zero, extend_naf, undo_naf, extend_naf_to_even
 
 class TestECCProjective():
 
